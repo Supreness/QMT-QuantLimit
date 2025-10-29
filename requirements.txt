@@ -1,6 +1,5 @@
 beautifulsoup4==4.12.3
-openai==1.58.1
-pandas==2.2.3
-playwright==1.49.1
-Requests==2.32.3
-#xtquant==241014.1.2
+pandas==2.0.3
+playwright==1.48.0
+xtquant==250516.1.1
+lark-oapi==1.4.21

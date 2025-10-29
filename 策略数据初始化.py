@@ -2,7 +2,6 @@ import json
 from xtquant import xtdata
 import pandas as pd
 from datetime import datetime
-import ray
 import os
 import glob
 xtdata.enable_hello = False
@@ -46,12 +45,12 @@ data_000001 = xtdata.get_local_data(field_list=['open',],
                            stock_list=['000001.SZ'],
                            count=2,
                            period='1d')['000001.SZ']
-new_data_time = data_000001.index[-1]
+new_data_time = ""
 
-if "15:00">  current_time > "09:15":
-    trader_data = data_000001.index[0]
-else:
-    trader_data = data_000001.index[-1]
+# if "15:00">  current_time > "09:15":
+#     trader_data = data_000001.index[0]
+# else:
+#     trader_data = data_000001.index[-1]
 
 #___________________________________________________________
 if new_data_time == today_str:
@@ -59,24 +58,19 @@ if new_data_time == today_str:
 else:
     print('开始下载数据,需要花费5分钟')
 
-    # 初始化Ray（如果还没初始化）
-    if not ray.is_initialized():
-        ray.init()
-
-    @ray.remote
     def download_stock_data(stock):
         return xtdata.download_history_data(stock, period='1d', start_time='', end_time=today_str, incrementally=True)
 
     # 创建所有远程任务
-    futures = [download_stock_data.remote(stock) for stock in stock_list]
-    ray.get(futures)
+    for stock in stock_list:
+        download_stock_data(stock)
     print('数据下载完成')
 #___________________________________________________________
-data_000001 = xtdata.get_local_data(field_list=['open',],
-                           stock_list=['000001.SZ'],
-                           count=2,
-                           period='1d')['000001.SZ']
-new_data_time = data_000001.index[-1]
+# data_000001 = xtdata.get_local_data(field_list=['open',],
+#                            stock_list=['000001.SZ'],
+#                            count=2,
+#                            period='1d')['000001.SZ']
+# new_data_time = data_000001.index[-1]
 
 if "15:00">  current_time > "09:15":
     trader_data = data_000001.index[0]
