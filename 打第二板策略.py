@@ -1,6 +1,6 @@
 from xtquant import xtdata
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import configparser
 from xtquant import xtdata
@@ -80,6 +80,8 @@ A = _a()
 A.bought_list = []
 A.data_cache = {}
 A.update_bought_list_num = 0
+A.yesterday_limit_up_stocks = set()  # 存储昨天涨停的股票
+A.yesterday_limit_up_checked = False  # 标记是否已检查昨天涨停的股票
 #___________________________________________________________
 def update_bought_list():
     full_data = xtdata.get_full_tick(code_list)
@@ -88,6 +90,71 @@ def update_bought_list():
         if full_data[stock]['lastPrice'] == loaded_dict[stock]:
             A.bought_list.append(stock)
 
+
+def check_yesterday_limit_up():
+    """
+    检查昨天涨停的股票（第一板）
+    返回昨天涨停的股票集合
+    """
+    if A.yesterday_limit_up_checked:
+        return A.yesterday_limit_up_stocks
+    
+    print('开始检查昨天涨停的股票（第一板）')
+    yesterday = datetime.now() - timedelta(days=1)
+    # 如果是周一，则往前推3天到周五
+    if yesterday.weekday() == 6:  # 周日
+        yesterday = yesterday - timedelta(days=2)
+    elif yesterday.weekday() == 0:  # 周一
+        yesterday = yesterday - timedelta(days=3)
+    
+    yesterday_str = yesterday.strftime('%Y%m%d')
+    
+    # 尝试读取昨天的涨停价字典
+    try:
+        with open('./配置文件/{}-limit_up_prices.json'.format(yesterday_str), 'r', encoding='utf-8') as f:
+            yesterday_limit_up_dict = json.load(f)
+        
+        # 获取昨天的日线数据来判断是否涨停
+        yesterday_date = yesterday.strftime('%Y-%m-%d')
+        
+        for stock in code_list:
+            try:
+                # 获取昨天的K线数据
+                period = '1d'  # 日线
+                count = 2  # 获取最近2天的数据
+                data = xtdata.get_market_data(
+                    stock_list=[stock],
+                    period=period,
+                    count=count,
+                    dividend_type='front_ratio',
+                    fill_data=True
+                )
+                
+                if stock in data and len(data[stock]) >= 2:
+                    # 获取昨天的收盘价和涨停价
+                    yesterday_close = data[stock].iloc[-2]['close']  # 倒数第二条是昨天的数据
+                    yesterday_limit_price = yesterday_limit_up_dict.get(stock)
+                    
+                    if yesterday_limit_price and abs(yesterday_close - yesterday_limit_price) < 0.01:
+                        # 昨天收盘价等于涨停价，说明昨天涨停了
+                        A.yesterday_limit_up_stocks.add(stock)
+                        print(f'{stock} 昨天涨停（第一板）')
+            except Exception as e:
+                print(f'检查 {stock} 昨天涨停状态时出错: {e}')
+                continue
+        
+        print(f'昨天涨停的股票（第一板）共 {len(A.yesterday_limit_up_stocks)} 只: {list(A.yesterday_limit_up_stocks)}')
+        A.yesterday_limit_up_checked = True
+        return A.yesterday_limit_up_stocks
+        
+    except FileNotFoundError:
+        print(f'没有找到 {yesterday_str} 的涨停价字典文件，无法判断昨天涨停的股票')
+        A.yesterday_limit_up_checked = True
+        return A.yesterday_limit_up_stocks
+    except Exception as e:
+        print(f'检查昨天涨停股票时出错: {e}')
+        A.yesterday_limit_up_checked = True
+        return A.yesterday_limit_up_stocks
 
 
 # code_list = xtdata.get_stock_list_in_sector('沪深A股')
@@ -127,6 +194,11 @@ def calculate_factors(stock):
 
 def on_tick(data):
     now = datetime.now().strftime("%H:%M")
+    
+    # 在9:25之后检查昨天涨停的股票（第一板）
+    if not A.yesterday_limit_up_checked and now >= '09:25':
+        check_yesterday_limit_up()
+    
     #每次运行剔除已经涨停的票
     if A.update_bought_list_num == 0 and now >= '09:25':
         update_bought_list()
@@ -135,6 +207,11 @@ def on_tick(data):
     for stock, stock_data in data.items():
         if (stock not in code_list )or (stock in A.bought_list):
             continue
+        
+        # 只处理昨天涨停的股票（第一板），今天涨停就是第二板
+        if stock not in A.yesterday_limit_up_stocks:
+            continue
+        
         # 更新缓存数据以便计算因子
         update_cache(stock, stock_data)
         # print(stock,stock_data)
@@ -145,16 +222,16 @@ def on_tick(data):
 
         factor1 = lastprice >= up_limit_price
         if factor1 and now <= '10:00':
-            print(stock,'达到涨停价')
+            print(stock,'达到涨停价（第二板）')
             factor3 = calculate_factors(stock)
             if factor3:
-                print(stock,'符合打板条件')
+                print(stock,'符合打第二板条件')
                 stock_count = buy_values / lastprice
                 # 取整到最接近的 100 的倍数
                 buy_volume = round(stock_count / 100) * 100
                 print(stock,'买入数量',buy_volume)
         
-                async_seq = xt_trader.order_stock_async(acc, stock, xtconstant.STOCK_BUY, buy_volume, xtconstant.LATEST_PRICE, up_limit_price, '打板策略')
+                async_seq = xt_trader.order_stock_async(acc, stock, xtconstant.STOCK_BUY, buy_volume, xtconstant.LATEST_PRICE, up_limit_price, '打第二板策略')
                 A.bought_list.append(stock)
 
 

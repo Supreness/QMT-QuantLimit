@@ -36,7 +36,7 @@ stock_list = xtdata.get_stock_list_in_sector('沪深A股')
 
 # 获取当天日期并转换为'YYYYMMDD'格式
 today_str = datetime.now().strftime('%Y%m%d')
-today_str
+
 
 
 
